@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Binaries & Large offline datasets
+node.exe
+*.traineddata
+
+# Input & Output data files (PDFs, Excel outputs, extracted text logs with PII)
+*.pdf
+*.xlsx
+*.txt
+!README.md
+!**/NAVOD_FLASH_DISK.txt
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,21 @@
+{
+  "name": "histologie-cop",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Local processing of histology PDF reports with strict privacy",
+  "main": "convert.js",
+  "scripts": {
+    "convert": "node convert.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.21.0",
+    "@napi-rs/canvas": "^1.0.8",
+    "exceljs": "^4.4.0",
+    "is-url": "^1.2.4",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^6.3.289",
+    "pureimage": "^0.4.20",
+    "tesseract.js": "^5.1.1",
+    "tesseract.js-core": "^5.1.1"
+  }
+}

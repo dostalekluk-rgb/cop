@@ -1,0 +1,46 @@
+===================================================================
+  NÁVOD K POUŽITÍ: AUTOMATIZOVANÉ ZPRACOVÁNÍ HISTOLOGICKÝCH REPORTŮ
+  Portable Verze pro USB Flash Disk
+===================================================================
+
+Tato verze je navržena tak, aby fungovala kompletně přenosně z jakéhokoliv
+USB flash disku nebo složky bez nutnosti cokoliv instalovat.
+
+-------------------------------------------------------------------
+1. JAK SPOUSTĚT NA LIBOVOLNÉM POČÍTAČI (Windows):
+-------------------------------------------------------------------
+A) PŘETAŽENÍM MYŠÍ (Nejsnadnější způsob):
+   - Uchopte libovolný PDF soubor s histologickým reportem myší.
+   - Přetáhněte jej a pusťte na ikonu "run.bat".
+   - Automaticky se otevře okno, proběhne OCR rozpoznání textu,
+     anonymizační audit a vyhodnocení pomocí Gemini AI.
+   - Výsledný Excel soubor (.xlsx) i textový soubor (.txt) se uloží
+     do stejné složky vedle vašeho PDF reportu.
+
+B) DVOJKLIKEM NA RUN.BAT:
+   - Pokud dvakrát kliknete na "run.bat", automaticky se zpracuje
+     soubor "histologie.pdf", který se nachází ve složce.
+
+C) Z PŘÍKAZOVÉ ŘÁDKY (CMD / PowerShell):
+   - Otevřete příkazovou řádku ve složce na flash disku:
+     node.exe convert.js "C:\cesta\k\vasemu_souboru.pdf"
+
+-------------------------------------------------------------------
+2. SOUBORY VE SLOŽCE PORTABLE:
+-------------------------------------------------------------------
+- run.bat             -> Spouštěcí soubor (podporuje Drag & Drop)
+- convert.js          -> Hlavní program pro zpracování PDF
+- node.exe            -> Přenosný Node.js engine (nevyžaduje instalaci)
+- ces.traineddata     -> Český OCR model pro Tesseract (offline)
+- package.json        -> Nastavení závislostí
+- node_modules/       -> Složka s integrovanými knihovnami
+- histologie.pdf      -> Ukázkový PDF report
+
+-------------------------------------------------------------------
+3. BEZPEČNOST A ANONYMIZACE PII:
+-------------------------------------------------------------------
+1. OCR rozpoznávání probíhá 100% LOKÁLNĚ na vašem počítači.
+2. Před jakoukoliv komunikací s AI probíhá lokální audit anonymizace.
+3. Pokud záznam neprode 100% kontrolou anonymizace (jsou v něm
+   detekována osobní data), NEBUDE odeslán do AI.
+===================================================================
