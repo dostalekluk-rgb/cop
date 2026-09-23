@@ -5,7 +5,6 @@ import { exec } from 'child_process';
 import ExcelJS from 'exceljs';
 import { convertPdfToTxt, exportToExcel, sendRowsToGoogleSheets } from './convert.js';
 import { fetchRedcapRecords, importRedcapRecords, cleanRc, parseDate, mapHistologyResultToCode } from './redcap.js';
-import * as ftp from 'basic-ftp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -641,19 +640,24 @@ function getDmyKey(rc, dateStr) {
     console.log(`-------------------------------------------------------------------`);
     console.log(`🌐 FTP Server: ${FTP_HOST} (Uživatel: ${FTP_USER})`);
     
-    const client = new ftp.Client();
     try {
-        await client.access({ host: FTP_HOST, user: FTP_USER, password: FTP_PASS, secure: false });
-        await client.cd('/www');
-        await client.uploadFrom(htmlFilePath, 'prospektivni_validace.html');
-        await client.uploadFrom(htmlFilePath, 'validace.html');
-        console.log(`🎉 Publikace na FTP server 100% úspěšná!`);
-        console.log(`🌐 Živá adresa 1: http://cipek.eu/prospektivni_validace.html`);
-        console.log(`🌐 Živá adresa 2: http://cipek.eu/validace.html`);
-    } catch (ftpErr) {
-        console.error(`❌ Chyba při nahrávání na FTP:`, ftpErr.message);
-    } finally {
-        client.close();
+        const ftp = await import('basic-ftp');
+        const client = new ftp.Client();
+        try {
+            await client.access({ host: FTP_HOST, user: FTP_USER, password: FTP_PASS, secure: false });
+            await client.cd('/www');
+            await client.uploadFrom(htmlFilePath, 'prospektivni_validace.html');
+            await client.uploadFrom(htmlFilePath, 'validace.html');
+            console.log(`🎉 Publikace na FTP server 100% úspěšná!`);
+            console.log(`🌐 Živá adresa 1: http://cipek.eu/prospektivni_validace.html`);
+            console.log(`🌐 Živá adresa 2: http://cipek.eu/validace.html`);
+        } catch (ftpErr) {
+            console.error(`❌ Chyba při nahrávání na FTP:`, ftpErr.message);
+        } finally {
+            client.close();
+        }
+    } catch (importErr) {
+        console.warn(`⚠️ Modul 'basic-ftp' není k dispozici. Nahrávání na FTP přeskočeno.`);
     }
     console.log(`✅ KROK 8 DOKONČEN: Dashboard byl exportován na FTP server.`);
 
