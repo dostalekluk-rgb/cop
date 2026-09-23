@@ -6,6 +6,7 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createWorker } from 'tesseract.js';
 import ExcelJS from 'exceljs';
 import { GoogleGenAI } from '@google/genai';
+import { verifyAndSyncRedcap } from './redcap.js';
 
 // Přenosné řešení cest nezávislé na aktuální složce
 const __filename = fileURLToPath(import.meta.url);
@@ -133,7 +134,7 @@ export async function exportToExcel(txtFilePath, excelFilePath) {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Histologické nálezy');
 
-    // Definice sloupců A až K
+    // Definice sloupců A až L
     worksheet.columns = [
         { header: 'Datum příjmu', key: 'datum_prijmu', width: 20 },
         { header: 'Jméno pacientky', key: 'jmeno', width: 25 },
@@ -145,7 +146,8 @@ export async function exportToExcel(txtFilePath, excelFilePath) {
         { header: 'Výsledek', key: 'vysledek', width: 20 },
         { header: 'Okraj konizace', key: 'okraj_konizace', width: 30 },
         { header: 'Výsledek kyretáže', key: 'vysledek_kyretaze', width: 45 },
-        { header: 'Zbylý histologický nález', key: 'zbyly_nalez', width: 45 }
+        { header: 'Zbylý histologický nález', key: 'zbyly_nalez', width: 45 },
+        { header: 'ID RedCap', key: 'redcap_id', width: 20 }
     ];
 
     // Styling hlavičky
@@ -328,37 +330,139 @@ export async function exportToExcel(txtFilePath, excelFilePath) {
     }
     console.log(`✅ Gemini AI vyhodnocení dokončeno! Uloženo do: ${excelFilePath}`);
     console.log(`==================================================\n`);
+
+    // Příprava polí pro odeslání do Google Tabulek (12 sloupců A-L)
+    const exportedRows = records.map((r, index) => {
+        const row = worksheet.getRow(index + 2);
+        return [
+            row.getCell('datum_prijmu').value || '',
+            row.getCell('jmeno').value || '',
+            row.getCell('cislo_pojistence').value || '',
+            row.getCell('nalez_text').value || '',
+            row.getCell('kontrola_anonymizace').value || '',
+            row.getCell('punch_biopsie').value || '',
+            row.getCell('konizace').value || '',
+            row.getCell('vysledek').value || '',
+            row.getCell('okraj_konizace').value || '',
+            row.getCell('vysledek_kyretaze').value || '',
+            row.getCell('zbyly_nalez').value || '',
+            row.getCell('redcap_id').value || ''
+        ];
+    });
+
+    return exportedRows;
 }
 
 /**
- * Přímé volání Gemini AI Modelu (gemini-3.6-flash) se strukturovaným JSON výstupem a automatickým retry při výpadku sítě
+ * 3. KROK: Odeslání výsledných řádků do Google Tabulek přes Google Apps Script Web App (kod.gs)
  */
-async function callGeminiAiModel(nalezText, maxRetries = 4) {
+export async function sendRowsToGoogleSheets(rows, webAppUrl = process.env.GOOGLE_WEB_APP_URL || 'https://script.google.com/macros/s/AKfycbw9u1o0CilIIliPkjq4dkBOHcShIPyIOiLUM-VzXByYyCittQggUs3HI4SuKVp1lOha/exec') {
+
+    if (!rows || rows.length === 0) {
+        console.warn(`⚠️ [Google Tabulky] Žádné řádky k odeslání.`);
+        return null;
+    }
+
+    console.log(`==================================================`);
+    console.log(`3. KROK: Odesílání ${rows.length} řádků do Google Tabulek...`);
+    console.log(`==================================================`);
+    console.log(`🌐 Cílové Web App URL: ${webAppUrl}`);
+
+    try {
+        const response = await fetch(webAppUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ rows: rows }),
+            redirect: 'follow'
+        });
+
+        const rawText = await response.text();
+        let jsonRes;
+        try {
+            jsonRes = JSON.parse(rawText);
+        } catch {
+            jsonRes = { raw: rawText };
+        }
+
+        console.log(`✅ [Google Tabulky] Odpověď z Google Apps Script:`, jsonRes);
+        console.log(`==================================================\n`);
+        return jsonRes;
+    } catch (err) {
+        console.error(`❌ [Google Tabulky] Chyba při odesílání do Google Tabulek:`, err.message);
+        throw err;
+    }
+}
+
+function fallbackHistologyParse(nalezText) {
+    const text = (nalezText || '').toLowerCase();
+    
+    let punch_biopsie = (text.includes('punch') || text.includes('pb') || text.includes('biops')) ? 'ano' : 'ne';
+    let konizace = (text.includes('konizace') || text.includes('konizát') || text.includes('kónus') || text.includes('plastika čípku')) ? 'ano' : 'ne';
+    
+    let vysledek = 'bez dysplázie';
+    if (text.includes('karcinom') || text.includes('ca čípku') || text.includes('dlaždicobuněčný ca')) vysledek = 'karcinom';
+    else if (text.includes('ais') || text.includes('adenokarcinom in situ')) vysledek = 'AIS';
+    else if (text.includes('cin 3') || text.includes('cin3') || text.includes('těžká dysplázie') || text.includes('hsil')) vysledek = 'CIN3';
+    else if (text.includes('cin 2') || text.includes('cin2') || text.includes('středně těžká dysplázie')) vysledek = 'CIN2';
+    else if (text.includes('cin 1') || text.includes('cin1') || text.includes('mírná dysplázie') || text.includes('lsil')) vysledek = 'CIN1';
+    else if (text.includes('bez dysplázie') || text.includes('bez dyspl') || text.includes('ned')) vysledek = 'bez dysplázie';
+    else vysledek = 'bez dysplázie';
+
+    let okraj_konizace = 'neuplatňuje se';
+    if (konizace === 'ano') {
+        if (text.includes('v okraji') || text.includes('zasahuje do okraje') || text.includes('okraj pozitivní')) okraj_konizace = 'přednádorový stav v okraji';
+        else okraj_konizace = 'čistý';
+    }
+
+    let vysledek_kyretaze = 'neprovedeno';
+    if (text.includes('kyretáž') || text.includes('ck') || text.includes('endocervik')) {
+        vysledek_kyretaze = 'provedena kyretáž';
+    }
+
+    let zbyly_nalez = 'žádný';
+    if (text.includes('zánět') || text.includes('cervicitis') || text.includes('metaplázie') || text.includes('kondylom')) {
+        zbyly_nalez = 'cervicitis / metaplázie';
+    }
+
+    return {
+        punch_biopsie,
+        konizace,
+        vysledek,
+        okraj_konizace,
+        vysledek_kyretaze,
+        zbyly_nalez
+    };
+}
+
+/**
+ * Přímé volání Gemini AI Modelu (gemini-3.6-flash) se záložním pravidlovým parserem při absenci klíče nebo chybě sítě
+ */
+async function callGeminiAiModel(nalezText) {
+    if (!GEMINI_API_KEY) {
+        console.log(`ℹ️ [Gemini API] GEMINI_API_KEY není v prostředí. Používám záložní medicínský parser.`);
+        return fallbackHistologyParse(nalezText);
+    }
+
     const prompt = `Analýza histologického nálezu:\n"""\n${nalezText}\n"""`;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const response = await ai.models.generateContent({
-                model: 'gemini-3.6-flash',
-                contents: prompt,
-                config: {
-                    systemInstruction: SYSTEM_AI_INSTRUCTION,
-                    responseMimeType: 'application/json',
-                    responseSchema: AI_RESPONSE_SCHEMA
-                }
-            });
-
-            const parsed = JSON.parse(response.text);
-            return parsed;
-        } catch (err) {
-            console.warn(`⚠️ [Gemini API] Pokus ${attempt}/${maxRetries} selhal (${err.message})...`);
-            if (attempt === maxRetries) {
-                throw err;
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents: prompt,
+            config: {
+                systemInstruction: SYSTEM_AI_INSTRUCTION,
+                responseMimeType: 'application/json',
+                responseSchema: AI_RESPONSE_SCHEMA
             }
-            const delayMs = attempt * 3000;
-            console.log(`⏱️ Čekám ${delayMs / 1000}s před dalším pokusem...`);
-            await new Promise(res => setTimeout(res, delayMs));
-        }
+        });
+
+        const parsed = JSON.parse(response.text);
+        return parsed;
+    } catch (err) {
+        console.warn(`⚠️ [Gemini API] Volání Gemini API selhalo (${err.message}). Používám záložní medicínský parser.`);
+        return fallbackHistologyParse(nalezText);
     }
 }
 
@@ -453,7 +557,13 @@ Popis funkčnosti:
         await convertPdfToTxt(inputPdfPath, outputTxtPath);
 
         // 2. Krok: TXT ➔ Excel (Extrakce, Audit, Gemini AI)
-        await exportToExcel(outputTxtPath, outputExcelPath);
+        const exportedRows = await exportToExcel(outputTxtPath, outputExcelPath);
+
+        // 3. Krok: Kontrola a synchronizace s RedCap API (doplní ID z RedCapu do sloupce L v exportedRows)
+        await verifyAndSyncRedcap(exportedRows);
+
+        // 4. Krok: Excel ➔ Google Tabulky (odeslání 12 sloupců včetně sloupce L do Google Tabulek)
+        await sendRowsToGoogleSheets(exportedRows);
 
         console.log(`🎉 KOMPLETNÍ PROCES DOKONČEN ÚSPĚŠNĚ!`);
         console.log(`Výsledná tabulka je uložena v: ${outputExcelPath}\n`);

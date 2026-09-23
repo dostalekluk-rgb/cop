@@ -465,6 +465,72 @@ export async function exportToExcel(txtFilePath, excelFilePath) {
     }
     console.log(`✅ Gemini AI vyhodnocení dokončeno! Uloženo do: ${excelFilePath}`);
     console.log(`==================================================\n`);
+
+    // Příprava polí pro odeslání do Google Tabulek
+    const exportedRows = records.map((r, index) => {
+        const row = worksheet.getRow(index + 2);
+        return [
+            row.getCell('datum_prijmu').value || '',
+            row.getCell('jmeno').value || '',
+            row.getCell('cislo_pojistence').value || '',
+            row.getCell('nalez_text').value || '',
+            row.getCell('kontrola_anonymizace').value || '',
+            row.getCell('punch_biopsie').value || '',
+            row.getCell('konizace').value || '',
+            row.getCell('vysledek').value || '',
+            row.getCell('okraj_konizace').value || '',
+            row.getCell('vysledek_kyretaze').value || '',
+            row.getCell('zbyly_nalez').value || ''
+        ];
+    });
+
+    return exportedRows;
+}
+
+/**
+ * 3. KROK: Odeslání výsledných řádků do Google Tabulek přes Google Apps Script Web App (kod.gs)
+ */
+export async function sendRowsToGoogleSheets(rows, webAppUrl = process.env.GOOGLE_WEB_APP_URL) {
+    if (!webAppUrl) {
+        console.log(`ℹ️ [Google Tabulky] Proměnná GOOGLE_WEB_APP_URL není nastavena. Odesílání do Google Tabulek přeskočeno.`);
+        return null;
+    }
+
+    if (!rows || rows.length === 0) {
+        console.warn(`⚠️ [Google Tabulky] Žádné řádky k odeslání.`);
+        return null;
+    }
+
+    console.log(`==================================================`);
+    console.log(`3. KROK: Odesílání ${rows.length} řádků do Google Tabulek...`);
+    console.log(`==================================================`);
+    console.log(`🌐 Cílové Web App URL: ${webAppUrl}`);
+
+    try {
+        const response = await fetch(webAppUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ rows: rows }),
+            redirect: 'follow'
+        });
+
+        const rawText = await response.text();
+        let jsonRes;
+        try {
+            jsonRes = JSON.parse(rawText);
+        } catch {
+            jsonRes = { raw: rawText };
+        }
+
+        console.log(`✅ [Google Tabulky] Odpověď z Google Apps Script:`, jsonRes);
+        console.log(`==================================================\n`);
+        return jsonRes;
+    } catch (err) {
+        console.error(`❌ [Google Tabulky] Chyba při odesílání do Google Tabulek:`, err.message);
+        throw err;
+    }
 }
 
 /**
@@ -590,7 +656,10 @@ Popis funkčnosti:
         await convertPdfToTxt(inputPdfPath, outputTxtPath);
 
         // 2. Krok: TXT ➔ Excel (Extrakce, Audit, Gemini AI)
-        await exportToExcel(outputTxtPath, outputExcelPath);
+        const exportedRows = await exportToExcel(outputTxtPath, outputExcelPath);
+
+        // 3. Krok: Excel ➔ Google Tabulky (pokud je nastaveno GOOGLE_WEB_APP_URL)
+        await sendRowsToGoogleSheets(exportedRows);
 
         console.log(`🎉 KOMPLETNÍ PROCES DOKONČEN ÚSPĚŠNĚ!`);
         console.log(`Výsledná tabulka je uložena v: ${outputExcelPath}\n`);

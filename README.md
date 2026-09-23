@@ -55,3 +55,12 @@ Ve složce je připraven soubor `run.bat`. Stačí jakýkoliv PDF soubor chytit 
 
 5. **Export do Excelu (.xlsx)**
    - Všechny údaje se zformátují a uloží do Excel tabulky `.xlsx` (se zalamováním textu a barevným odlišením stavu anonymizace).
+
+6. **Odeslání do Google Tabulek**
+   - Výsledné řádky se odesílají do Google Tabulky přes Google Apps Script Web App (`GOOGLE_WEB_APP_URL`).
+
+7. **Kontrola a synchronizace s RedCap API**
+   - Pomocí modulu `redcap.js` a RedCap API (`REDCAP_API_TOKEN` / `REDCAP_API_URL`):
+     - Ověří se shoda **rodného čísla** (`rc` / `record_id`).
+     - Ověří se shoda **data** (`Datum příjmu` v tabulce se musí shodovat nebo být **maximálně 5 dní po** datu vizity `datum` / `v1_date` v RedCapu).
+     - Výsledek histologie se zapíše do příslušné proměnné v RedCapu (`konizace` pokud konizace = "ano", jinak `biopsie` pokud punch biopsie = "ano").
