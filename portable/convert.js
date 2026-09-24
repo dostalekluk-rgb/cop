@@ -6,7 +6,7 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createWorker } from 'tesseract.js';
 import ExcelJS from 'exceljs';
 import { GoogleGenAI } from '@google/genai';
-import { verifyAndSyncRedcap } from './redcap.js';
+import { verifyAndSyncRedcap, cleanRc, parseDate } from './redcap.js';
 
 // Přenosné řešení cest nezávislé na aktuální složce
 const __filename = fileURLToPath(import.meta.url);
@@ -363,8 +363,33 @@ export async function sendRowsToGoogleSheets(rows, webAppUrl = process.env.GOOGL
         return null;
     }
 
+    // Deduplikace řádků před odesláním podle RČ a Data příjmu (bez času)
+    const uniqueMap = new Map();
+    const rowsToSend = [];
+    rows.forEach(r => {
+        const rc = cleanRc(r[2]);
+        const dateObj = parseDate(r[0]);
+        let dmy = '';
+        if (dateObj) {
+            const day = String(dateObj.getUTCDate()).padStart(2, '0');
+            const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+            const year = dateObj.getUTCFullYear();
+            dmy = `${day}.${month}.${year}`;
+        } else {
+            dmy = (r[0] || '').toString().trim();
+        }
+        const key = `${rc}_${dmy}`;
+        if (rc && dmy && uniqueMap.has(key)) {
+            const existing = uniqueMap.get(key);
+            if (!existing[11] && r[11]) existing[11] = r[11];
+            return;
+        }
+        if (rc && dmy) uniqueMap.set(key, r);
+        rowsToSend.push(r);
+    });
+
     console.log(`==================================================`);
-    console.log(`3. KROK: Odesílání ${rows.length} řádků do Google Tabulek...`);
+    console.log(`3. KROK: Odesílání ${rowsToSend.length} unifikovaných řádků do Google Tabulek...`);
     console.log(`==================================================`);
     console.log(`🌐 Cílové Web App URL: ${webAppUrl}`);
 
@@ -374,7 +399,7 @@ export async function sendRowsToGoogleSheets(rows, webAppUrl = process.env.GOOGL
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ rows: rows }),
+            body: JSON.stringify({ rows: rowsToSend }),
             redirect: 'follow'
         });
 

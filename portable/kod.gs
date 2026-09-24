@@ -49,7 +49,14 @@ function doPost(e) {
             var exDateDmy = extractDmyStr(existingValues[r][0]);
 
             if (exRc === uRc) {
-              if (!uDateDmy || !exDateDmy || exDateDmy === uDateDmy) {
+              if (uDateDmy && exDateDmy) {
+                if (exDateDmy === uDateDmy) {
+                  sheet.getRange(r + 2, 12).setValue(redcapId);
+                  existingValues[r][11] = redcapId;
+                  updatedCount++;
+                  break;
+                }
+              } else {
                 sheet.getRange(r + 2, 12).setValue(redcapId);
                 existingValues[r][11] = redcapId;
                 updatedCount++;
@@ -92,7 +99,12 @@ function doPost(e) {
             var exDateDmy = extractDmyStr(existingValues[r][0]);
             
             if (exRc === newRc) {
-              if (!newDateDmy || !exDateDmy || exDateDmy === newDateDmy) {
+              if (newDateDmy && exDateDmy) {
+                if (exDateDmy === newDateDmy) {
+                  foundMatchRowIndex = r + 2;
+                  break;
+                }
+              } else {
                 foundMatchRowIndex = r + 2;
                 break;
               }
@@ -214,16 +226,16 @@ function cleanRcStr(val) {
 }
 
 function extractDmyStr(val) {
-  if (!val) return "";
+  if (val === null || val === undefined) return "";
   var s = val.toString().trim();
-  var m = s.match(/^(\d{1,2})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{4})/);
+  var m = s.match(/(\d{1,2})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{4})/);
   if (m) {
     var d = parseInt(m[1], 10);
     var month = parseInt(m[2], 10);
     var y = m[3];
     return (d < 10 ? "0" + d : d) + "." + (month < 10 ? "0" + month : month) + "." + y;
   }
-  var ymd = s.match(/^(\d{4})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{1,2})/);
+  var ymd = s.match(/(\d{4})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{1,2})/);
   if (ymd) {
     var y = ymd[1];
     var month = parseInt(ymd[2], 10);
