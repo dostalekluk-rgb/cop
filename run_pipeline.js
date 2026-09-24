@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Konfigurace rozhraní
-const GOOGLE_WEB_APP_URL = process.env.GOOGLE_WEB_APP_URL || 'https://script.google.com/macros/s/AKfycbwvMbwc2F5kMH5E4jUDc-8_e99PTrffO82kBFXrnZ4CfcqpAxbUki4_x9_AGoex6o8M/exec';
+const GOOGLE_WEB_APP_URL = process.env.GOOGLE_WEB_APP_URL || 'https://script.google.com/macros/s/AKfycbzNzshLzdHwfbAjrMF_8vMImHq7sw-H6TH-Ns1ELs4v2nJ4OtLrWS6tQBXIJpnD2MCD/exec';
 const REDCAP_API_URL = process.env.REDCAP_API_URL || 'https://redcap.vfn.cz/api/';
 const REDCAP_API_TOKEN = process.env.REDCAP_API_TOKEN || 'A0062F58293C7206CF3768BFE25F65AD';
 

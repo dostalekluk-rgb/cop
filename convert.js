@@ -356,7 +356,7 @@ export async function exportToExcel(txtFilePath, excelFilePath) {
 /**
  * 3. KROK: Odeslání výsledných řádků do Google Tabulek přes Google Apps Script Web App (kod.gs)
  */
-export async function sendRowsToGoogleSheets(rows, webAppUrl = process.env.GOOGLE_WEB_APP_URL || 'https://script.google.com/macros/s/AKfycbw9u1o0CilIIliPkjq4dkBOHcShIPyIOiLUM-VzXByYyCittQggUs3HI4SuKVp1lOha/exec') {
+export async function sendRowsToGoogleSheets(rows, webAppUrl = process.env.GOOGLE_WEB_APP_URL || 'https://script.google.com/macros/s/AKfycbzNzshLzdHwfbAjrMF_8vMImHq7sw-H6TH-Ns1ELs4v2nJ4OtLrWS6tQBXIJpnD2MCD/exec') {
 
     if (!rows || rows.length === 0) {
         console.warn(`⚠️ [Google Tabulky] Žádné řádky k odeslání.`);
