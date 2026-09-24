@@ -411,6 +411,7 @@ function getDmyKey(rc, dateStr) {
             continue;
         }
 
+        const formattedHistDate = `${histDate.getUTCDate()}.${histDate.getUTCMonth() + 1}.${histDate.getUTCFullYear()}`;
         let maxAllowedDays = 5;
         if (isKon) {
             maxAllowedDays = 60;
