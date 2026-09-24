@@ -411,8 +411,14 @@ function getDmyKey(rc, dateStr) {
             continue;
         }
 
-        const formattedHistDate = `${histDate.getUTCDate()}.${histDate.getUTCMonth() + 1}.${histDate.getUTCFullYear()}`;
-        console.log(`   └─ Hledám vizitu v REDCapu pro RČ "${rc}" v rozmezí +- 5 dní od ${formattedHistDate}...`);
+        let maxAllowedDays = 5;
+        if (isKon) {
+            maxAllowedDays = 60;
+        } else if (isPb) {
+            maxAllowedDays = 7;
+        }
+
+        console.log(`   └─ Hledám vizitu v REDCapu pro RČ "${rc}" (max ${maxAllowedDays} dní před od ${formattedHistDate})...`);
 
         let candidateVisits = [];
 
@@ -424,8 +430,8 @@ function getDmyKey(rc, dateStr) {
             const redDate = parseDate(redDateStr);
             if (!redDate) continue;
 
-            const diffDays = Math.abs(histDate.getTime() - redDate.getTime()) / (1000 * 3600 * 24);
-            if (diffDays <= 5) {
+            const diffDays = Math.round((histDate.getTime() - redDate.getTime()) / (1000 * 3600 * 24));
+            if (diffDays >= 0 && diffDays <= maxAllowedDays) {
                 candidateVisits.push({
                     record: redRec,
                     diffDays: diffDays,

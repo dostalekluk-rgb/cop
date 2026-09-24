@@ -198,12 +198,18 @@ export function matchAndPrepareRedcapUpdates(googleRows, redcapRecords) {
             const dateRedcap = parseDate(recDateStr);
             if (!dateRedcap) continue;
 
-            // Rozdíl ve dnech = (dateGoogle - dateRedcap)
-            const diffTimeMs = dateGoogle.getTime() - dateRedcap.getTime();
-            const diffDays = Math.round(diffTimeMs / (1000 * 60 * 60 * 24));
+            // Určení maximálního přípustného odstupu vizity v REDCapu před datem příjmu:
+            // 1. Pokud konizace = 'ano' -> vizita v REDCapu může předcházet Datum příjmu o max 60 dní (0 až 60 dní)
+            // 2. Pokud punch biopsie = 'ano' -> vizita v REDCapu může předcházet Datum příjmu o max 7 dní (o týden, 0 až 7 dní)
+            // 3. Jinak výchozí tolerance 5 dní (0 až 5 dní)
+            let maxAllowedDays = 5;
+            if (konizace === 'ano') {
+                maxAllowedDays = 60;
+            } else if (punchBiopsie === 'ano') {
+                maxAllowedDays = 7;
+            }
 
-            // Pravidlo: Datum příjmu v tabulce se musí shodovat nebo být MAXIMÁLNĚ 5 dní po datu v RedCapu (0 až 5 dní)
-            if (diffDays >= 0 && diffDays <= 5) {
+            if (diffDays >= 0 && diffDays <= maxAllowedDays) {
                 candidateVisits.push({
                     record: rcRec,
                     diffDays: diffDays
