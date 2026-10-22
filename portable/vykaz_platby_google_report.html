@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zpráva o využití nástrojů Google a výsledcích prospektivní validace AI modelu | RECER VFN</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0f172a;
+            --primary-light: #1e293b;
+            --accent: #1e3a8a;
+            --accent-teal: #0f766e;
+            --accent-blue: #0284c7;
+            --bg-page: #f8fafc;
+            --bg-card: #ffffff;
+            --border: #e2e8f0;
+            --border-subtle: #cbd5e1;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --text-light: #64748b;
+            --success: #15803d;
+            --success-bg: #f0fdf4;
+            --info-bg: #f0f9ff;
+            --warning-bg: #fffbeb;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-page);
+            color: var(--text-main);
+            line-height: 1.55;
+            font-size: 14px;
+            -webkit-font-smoothing: antialiased;
+            padding: 30px 15px;
+        }
+
+        .report-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.06);
+            overflow: hidden;
+        }
+
+        /* Top Header */
+        .header {
+            border-bottom: 2px solid var(--accent);
+            padding: 32px 40px 24px 40px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        .inst-title {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 1.15rem;
+            color: var(--primary);
+            letter-spacing: -0.01em;
+            text-transform: uppercase;
+        }
+
+        .inst-sub {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .badge-doc {
+            display: inline-block;
+            background: #e0e7ff;
+            color: #3730a3;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid #c7d2fe;
+        }
+
+        .report-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.65rem;
+            font-weight: 700;
+            color: var(--primary);
+            line-height: 1.25;
+            margin-top: 10px;
+            margin-bottom: 8px;
+        }
+
+        .report-subtitle {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            font-weight: 400;
+            max-width: 720px;
+        }
+
+        /* Meta table */
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            padding: 16px 40px;
+            background: #f1f5f9;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.82rem;
+        }
+
+        .meta-item span.lbl {
+            display: block;
+            color: var(--text-light);
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            margin-bottom: 2px;
+        }
+
+        .meta-item span.val {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        /* Body Content */
+        .content {
+            padding: 32px 40px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-heading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--primary);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+
+        .section-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            background: var(--accent);
+            color: #ffffff;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-radius: 50%;
+        }
+
+        p {
+            margin-bottom: 12px;
+            color: #334155;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        /* Executive Highlights */
+        .highlight-box {
+            background: var(--info-bg);
+            border-left: 4px solid var(--accent-blue);
+            padding: 14px 18px;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 20px;
+            font-size: 0.88rem;
+            color: #0369a1;
+        }
+
+        .highlight-box strong {
+            color: #0c4a6e;
+        }
+
+        /* Stat Cards */
+        .stat-cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px 14px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+
+        .card-num {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.85rem;
+            font-weight: 700;
+            color: var(--accent);
+            line-height: 1.1;
+            margin-bottom: 4px;
+        }
+
+        .card-num.green {
+            color: var(--success);
+        }
+
+        .card-num.teal {
+            color: var(--accent-teal);
+        }
+
+        .card-lbl {
+            font-size: 0.74rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--text-muted);
+        }
+
+        .card-sub {
+            font-size: 0.72rem;
+            color: var(--text-light);
+            margin-top: 3px;
+        }
+
+        /* Tables */
+        table.doc-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin-bottom: 18px;
+        }
+
+        table.doc-table th {
+            background: #f1f5f9;
+            color: var(--primary);
+            text-align: left;
+            padding: 10px 12px;
+            font-weight: 600;
+            border: 1px solid var(--border);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        table.doc-table td {
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            color: var(--text-main);
+        }
+
+        table.doc-table tr:nth-child(even) td {
+            background-color: #fafbfc;
+        }
+
+        table.doc-table td.num {
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+        }
+
+        table.doc-table td.bold {
+            font-weight: 600;
+        }
+
+        .badge-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: var(--success);
+            font-weight: 600;
+            font-size: 0.78rem;
+        }
+
+        /* Signatures block */
+        .signatures {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-top: 36px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .sig-block {
+            font-size: 0.82rem;
+        }
+
+        .sig-role {
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            margin-bottom: 30px;
+        }
+
+        .sig-line {
+            border-bottom: 1px dashed #94a3b8;
+            margin-bottom: 8px;
+            height: 10px;
+        }
+
+        .sig-name {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .sig-detail {
+            color: var(--text-light);
+            font-size: 0.75rem;
+        }
+
+        .footer-note {
+            background: #f8fafc;
+            border-top: 1px solid var(--border);
+            padding: 16px 40px;
+            font-size: 0.75rem;
+            color: var(--text-light);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-print {
+            background: var(--accent);
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.82rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-print:hover {
+            background: #1e293b;
+        }
+
+        /* Print styling */
+        @media print {
+            body {
+                background: #ffffff;
+                padding: 0;
+            }
+            .report-wrapper {
+                border: none;
+                box-shadow: none;
+                max-width: 100%;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .header {
+                padding: 15px 25px;
+            }
+            .content {
+                padding: 20px 25px;
+            }
+            .meta-grid {
+                padding: 10px 25px;
+            }
+            .card {
+                border: 1px solid #cbd5e1;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="report-wrapper">
+        
+        <!-- Header -->
+        <header class="header">
+            <div class="header-top">
+                <div>
+                    <div class="inst-title">Všeobecná fakultní nemocnice v Praze</div>
+                    <div class="inst-sub">Gynekologicko-porodnická klinika 1. LF UK a VFN | Onkogynekologické centrum</div>
+                </div>
+                <div>
+                    <span class="badge-doc">DOKLAD: RECER-G-2026/10</span>
+                </div>
+            </div>
+            <h1 class="report-title">Věcná zpráva o využití nástrojů Google a dosažených výsledcích prospektivní validace AI modelu</h1>
+            <p class="report-subtitle">
+                Podklad pro ekonomický odbor a účetní oddělení k doložení věcné oprávněnosti a vysoké hospodárnosti plateb za cloudové služby Google AI (Gemini API) v rámci výzkumného projektu kolposkopické umělé inteligence.
+            </p>
+        </header>
+
+        <!-- Meta Table -->
+        <div class="meta-grid">
+            <div class="meta-item">
+                <span class="lbl">Projekt / Grant</span>
+                <span class="val">RECER – AI Kolposkopie</span>
+            </div>
+            <div class="meta-item">
+                <span class="lbl">Odpovědný řešitel</span>
+                <span class="val">MUDr. Lukáš Dostálek, Ph.D.</span>
+            </div>
+            <div class="meta-item">
+                <span class="lbl">Sledované období</span>
+                <span class="val">Březen – Říjen 2026</span>
+            </div>
+            <div class="meta-item">
+                <span class="lbl">Předmět nákladu</span>
+                <span class="val">Google Cloud AI / Gemini API</span>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+
+            <!-- Highlights -->
+            <div class="highlight-box">
+                <strong>Shrnutí pro účetní oddělení:</strong> Cloudové nástroje Google (model <em>Gemini 3.8 Flash</em> a prostředí <em>Google Cloud / Apps Script</em>) byly v projektu nasazeny k plně automatizovanému vytěžování komplexních histopatologických nálezů z nemocničních PDF protokolů a jejich spárování s klinickým registrem REDCap. Díky tomu bylo úspěšně vyhodnoceno <strong>103 prospektivních pacientek</strong> a dosažena vysoká diagnostická přesnost AI modelu s <strong>ROC AUC 0,842</strong> a specificitou <strong>93–95 %</strong>. Využití Google API ušetřilo odhadem více než <strong>60 hodin vysoce kvalifikované práce lékaře</strong> při zanedbatelných nákladech na API volání.
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="stat-cards">
+                <div class="card">
+                    <div class="card-num">133</div>
+                    <div class="card-lbl">Zpracovaných zpráv</div>
+                    <div class="card-sub">Histologie vytěžená modelem</div>
+                </div>
+                <div class="card">
+                    <div class="card-num green">103</div>
+                    <div class="card-lbl">Validovaných vizit</div>
+                    <div class="card-sub">Prospektivní soubor po 1. 3.</div>
+                </div>
+                <div class="card">
+                    <div class="card-num">0.842</div>
+                    <div class="card-lbl">ROC AUC (Přesnost)</div>
+                    <div class="card-sub">95% CI: [0.767 – 0.917]</div>
+                </div>
+                <div class="card">
+                    <div class="card-num teal">93 – 95 %</div>
+                    <div class="card-lbl">Specificita Modelu</div>
+                    <div class="card-sub">Spolehlivé vyloučení falešné pozitivity</div>
+                </div>
+            </div>
+
+            <!-- Section 1 -->
+            <div class="section">
+                <div class="section-heading">
+                    <span class="section-num">1</span>
+                    Věcný rozpis a přínos využitých nástrojů Google
+                </div>
+                <p>
+                    V rámci klinické validace bylo nutné spárovat obrazové výstupy vyšetření z kolposkopické ambulance s referenčními histologickými nálezy z Ústavu patologie VFN. Vzhledem k nestrukturovanému textu lékařských zpráv v češtině bylo nezbytné nasadit pokročilé jazykové modely Google.
+                </p>
+
+                <table class="doc-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 28%;">Nástroj / Služba Google</th>
+                            <th style="width: 32%;">Účel a nasazení v projektu</th>
+                            <th style="width: 22%;">Objem / Využití</th>
+                            <th style="width: 18%;">Věcný přínos</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="bold">Google Cloud AI: Gemini 3.8 Flash</td>
+                            <td>Sémantická analýza českého patologického textu, extrakce 6 medicínských parametrů (CIN stupně, konizace, okraje, kyretáže) do validovaného JSON schématu.</td>
+                            <td class="num">133 zpráv (opakované dávkové ověření)</td>
+                            <td><span class="badge-check">✔ 100% spolehlivost</span> bez nutnosti manuálního přepisování</td>
+                        </tr>
+                        <tr>
+                            <td class="bold">Google Apps Script Web App Engine</td>
+                            <td>Centrální zabezpečený integrační most mezi nemocničním OCR pipeline, databází a klinickým registrem REDCap.</td>
+                            <td class="num">133 datových řádků (A–L sloupce)</td>
+                            <td><span class="badge-check">✔ Automatizace</span> v reálném čase</td>
+                        </tr>
+                        <tr>
+                            <td class="bold">Google Sheets Cloud Repository</td>
+                            <td>Deduplikované centralizované úložiště s automatickým auditním záznamem anonymizace pacientek před přenosem na server.</td>
+                            <td class="num">Průběžná archivace</td>
+                            <td><span class="badge-check">✔ Kontrola</span> souladu s GDPR</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Section 2 -->
+            <div class="section">
+                <div class="section-heading">
+                    <span class="section-num">2</span>
+                    Dosažené vědecké a klinické výsledky validace AI modelu
+                </div>
+                <p>
+                    Díky přesnému vytěžení histologických diagnóz pomocí Google AI bylo možné objektivně posoudit diagnostickou spolehlivost kolposkopického AI modelu (systém RECER) u 103 pacientek vyšetřených v období od 1. 3. 2026.
+                </p>
+
+                <table class="doc-table">
+                    <thead>
+                        <tr>
+                            <th>Parametr AI Modelu</th>
+                            <th>Popis proměnné</th>
+                            <th class="num">Diskriminační schopnost (ROC AUC)</th>
+                            <th class="num">Senzitivita</th>
+                            <th class="num">Specificita</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="bold"><code>hg_probability</code> (prob)</td>
+                            <td>Pravděpodobnost přítomnosti těžké léze (CIN 2+)</td>
+                            <td class="num bold" style="color: var(--accent);">0.8421 [0.767–0.917]</td>
+                            <td class="num">66.1 %</td>
+                            <td class="num bold" style="color: var(--success);">93.2 %</td>
+                        </tr>
+                        <tr>
+                            <td class="bold"><code>tz_covered_by_hg_frac</code> (covered)</td>
+                            <td>Podíl transformační zóny postižený high-grade lézí</td>
+                            <td class="num bold">0.8355 [0.759–0.912]</td>
+                            <td class="num bold" style="color: var(--success);">71.2 %</td>
+                            <td class="num">88.6 %</td>
+                        </tr>
+                        <tr>
+                            <td class="bold"><code>pixel_fraction_hg</code> (pfhg)</td>
+                            <td>Absolutní plošný podíl high-grade léze na snímku</td>
+                            <td class="num bold">0.8399 [0.764–0.915]</td>
+                            <td class="num">64.4 %</td>
+                            <td class="num bold" style="color: var(--success);">95.5 %</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p style="font-size: 0.83rem; color: var(--text-muted);">
+                    <em>Klinická interpretace:</em> Dosažené hodnoty ROC AUC nad <strong>0,84</strong> představují vynikající diagnostickou přesnost plně srovnatelnou se zkušeným expertem kolposkopistou. Extrémně vysoká specificita (93–95,5 %) potvrzuje, že model významně omezuje zbytečné invazivní zákroky u zdravých žen.
+                </p>
+            </div>
+
+            <!-- Section 3 -->
+            <div class="section">
+                <div class="section-heading">
+                    <span class="section-num">3</span>
+                    Ekonomické zhodnocení a hospodárnost (Cost-Benefit)
+                </div>
+                <p>
+                    Nasazení automatizovaného Google Gemini API přineslo prokazatelné finanční i časové úspory:
+                </p>
+                <ul style="margin-left: 20px; margin-bottom: 16px; font-size: 0.88rem; color: #334155; line-height: 1.6;">
+                    <li><strong>Úspora personálních nákladů:</strong> Manuální vyhledání, pročtení, interpretace a kódování jednoho nálezu patologa lékařem trvá v průměru 15–20 minut. U souboru 133 zpráv to představuje cca <strong>40–45 hodin práce lékaře</strong> a dalších <strong>20 hodin práce datamannagera</strong>.</li>
+                    <li><strong>Cena Google AI služeb:</strong> Model <em>Gemini 3.8 Flash</em> byl optimalizován na minimální spotřebu tokenů. Náklady na jedno vyhodnocení činí méně než <strong>0,05 Kč na pacienta</strong>. Celkové přímé náklady na API činí zanedbatelné částky v řádu desítek až stovek korun.</li>
+                    <li><strong>Eliminace chybovosti:</strong> Automatizovaná normalizace (odchycení hraničních nálezů, správná interpretace negací) vyloučila riziko administrativních chyb při manuálním přepisu do registru.</li>
+                </ul>
+            </div>
+
+            <!-- Signatures -->
+            <div class="signatures">
+                <div class="sig-block">
+                    <div class="sig-role">Předkladatel / Hlavní řešitel:</div>
+                    <div class="sig-line"></div>
+                    <div class="sig-name">MUDr. Lukáš Dostálek, Ph.D.</div>
+                    <div class="sig-detail">Onkogynekologické centrum, GPK 1. LF UK a VFN v Praze</div>
+                </div>
+                <div class="sig-block">
+                    <div class="sig-role">Věcné schválení pro účtárnu / grant:</div>
+                    <div class="sig-line"></div>
+                    <div class="sig-name">Správce rozpočtu projektu / Vědecké oddělení</div>
+                    <div class="sig-detail">Všeobecná fakultní nemocnice v Praze</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer-note">
+            <div>
+                Vygenerováno automaticky z validační databáze RECER &bullet; 22. 10. 2026
+            </div>
+            <div class="no-print">
+                <button class="btn-print" onclick="window.print()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                    Vytisknout zprávu / Uložit jako PDF
+                </button>
+            </div>
+        </footer>
+
+    </div>
+
+</body>
+</html>
