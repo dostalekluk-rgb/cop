@@ -10,9 +10,9 @@ echo ===================================================================
 
 if "%~1"=="" goto USE_DEFAULT
 
-echo Spoustim pipeline pro zadaný soubor: "%~1"
+echo Spoustim pipeline pro: %*
 echo.
-"%NODE_EXE%" "%SCRIPT_DIR%run_pipeline.js" "%~1"
+"%NODE_EXE%" "%SCRIPT_DIR%run_pipeline.js" %*
 goto END
 
 :USE_DEFAULT

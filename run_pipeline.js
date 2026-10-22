@@ -228,17 +228,18 @@ async function runFullPipeline(inputPdfArg) {
 
     let inputPdfPath = path.isAbsolute(inputPdfArg) ? inputPdfArg : path.join(__dirname, inputPdfArg);
     const ext = path.extname(inputPdfPath).toLowerCase();
+    const baseName = path.basename(inputPdfPath, ext);
     
     let txtFilePath;
     if (ext === '.txt') {
         txtFilePath = inputPdfPath;
     } else {
-        const baseName = path.basename(inputPdfPath, ext);
         txtFilePath = path.join(__dirname, `${baseName}.txt`);
     }
 
     const jsonFilePath = path.join(__dirname, `vystup_gemini.json`);
     const excelFilePath = path.join(__dirname, `vystup_histologie.xlsx`);
+    const specificExcelPath = path.join(__dirname, `${baseName}.xlsx`);
     const masterExcelFilePath = path.join(__dirname, `histologie_cop.xlsx`);
     const htmlFilePath = path.join(__dirname, `prospektivni_validace.html`);
 
@@ -251,13 +252,13 @@ async function runFullPipeline(inputPdfArg) {
     if (ext === '.txt') {
         console.log(`ℹ️ Vstupem je přímo textový soubor '${inputPdfPath}'. Extrakce přeskočena.`);
         console.log(`✅ KROK 1 DOKONČEN: Používám textový soubor '${txtFilePath}'`);
+    } else if (fs.existsSync(txtFilePath) && fs.statSync(txtFilePath).size > 100) {
+        console.log(`ℹ️ Nalezen již extrahovaný text '${txtFilePath}'. Extrakce přeskočena.`);
+        console.log(`✅ KROK 1 DOKONČEN: Používám existující textový soubor '${txtFilePath}'`);
     } else if (fs.existsSync(inputPdfPath)) {
         console.log(`📥 Načítám PDF soubor: '${inputPdfPath}'...`);
         await convertPdfToTxt(inputPdfPath, txtFilePath);
         console.log(`✅ KROK 1 DOKONČEN: Text z PDF byl extrahován do '${txtFilePath}'`);
-    } else if (fs.existsSync(txtFilePath)) {
-        console.log(`ℹ️ Vstupní PDF '${inputPdfPath}' nebylo nalezeno, ale existuje již extrahovaný text '${txtFilePath}'.`);
-        console.log(`✅ KROK 1 DOKONČEN: Používám existující textový soubor '${txtFilePath}'`);
     } else {
         throw new Error(`Vstupní PDF soubor '${inputPdfPath}' ani textový soubor '${txtFilePath}' nebyly nalezeny!`);
     }
@@ -281,6 +282,11 @@ async function runFullPipeline(inputPdfArg) {
     console.log(`Vytvářím formatted Excel tabulku '${excelFilePath}'...`);
 
     const extractedRows = await exportToExcel(txtFilePath, excelFilePath);
+    if (baseName !== 'vystup_histologie' && baseName !== 'histologie') {
+        try {
+            fs.copyFileSync(excelFilePath, specificExcelPath);
+        } catch (e) {}
+    }
 
     // Uložení Gemini AI analýzy do vystup_gemini.json
     const jsonOutputData = extractedRows.map((r, idx) => ({
@@ -472,6 +478,15 @@ function getDmyKey(rc, dateStr) {
         console.log(`REDCap import dokončen:`, impRes);
     }
 
+    // Synchronizace Sloupce L (ID RedCap) do extractedRows před odesláním do Google Tabulky
+    extractedRows.forEach(r => {
+        const key = getDmyKey(r[2], r[0]);
+        const matched = masterRowsMap.get(key);
+        if (matched && matched[11]) {
+            r[11] = matched[11];
+        }
+    });
+
     // Odeslání NOVÝCH NÁLEZŮ (extractedRows) do Google Tabulky (přidá nové řádky, pokud ještě neexistují)
     console.log(`\n📤 Odesílám nově zpracované nálezy (${extractedRows.length} řádků s vyplněným ID RedCap) do Google Tabulky...`);
     const updateGSheetRes = await sendRowsToGoogleSheets(extractedRows, GOOGLE_WEB_APP_URL);
@@ -493,7 +508,7 @@ function getDmyKey(rc, dateStr) {
     }
 
     // Uložení Sloupce L i do lokálních Excel souborů
-    const excelfilesToUpdate = [excelFilePath, masterExcelFilePath];
+    const excelfilesToUpdate = [excelFilePath, masterExcelFilePath, specificExcelPath];
     for (const fPath of excelfilesToUpdate) {
         if (fs.existsSync(fPath)) {
             const wb = new ExcelJS.Workbook();
@@ -506,7 +521,7 @@ function getDmyKey(rc, dateStr) {
                 const matchedRow = allRowsToCheck.find(r => {
                     const rRc = cleanRc(r[2]);
                     const rDate = (r[0] || '').toString().trim();
-                    return rRc === rc && (rDate === dateStr || !dateStr || !rDate);
+                    return rRc === rc && (rDate === dateStr || !dateStr || !rDate || getDmyKey(rRc, rDate) === getDmyKey(rc, dateStr));
                 });
                 if (matchedRow && matchedRow[11]) {
                     excelRow.getCell(12).value = matchedRow[11];
@@ -556,12 +571,15 @@ function getDmyKey(rc, dateStr) {
     console.log(`KROK 7/9: PROSPEKTIVNÍ ROC AUC VALIDACE MODELU PROTI HISTOLOGII`);
     console.log(`-------------------------------------------------------------------`);
     console.log(`Vyhodnocuji prospektivní vizity po 1. 3. 2026 s histologií a proměnnými modelu...`);
+    console.log(`📥 Načítám čerstvě aktualizované vizity z REDCap API pro prospektivní validaci...`);
+    const freshRedcapRecords = await fetchRedcapRecords(REDCAP_API_TOKEN, REDCAP_API_URL);
+    console.log(`Načteno ${freshRedcapRecords.length} aktuálních záznamů z REDCapu pro validaci.\n`);
 
     const cutoffDate = new Date(Date.UTC(2026, 2, 1));
     const prospectiveVisits = [];
     let hgCount = 0, cin3Count = 0, cin2Count = 0, cin1Count = 0, nedCount = 0, biopsyCount = 0, conizationCount = 0;
 
-    for (const r of redcapRecords) {
+    for (const r of freshRedcapRecords) {
         const dStr = r.datum || r.v1_date || r.vfu_date;
         const d = parseDate(dStr);
         if (!d || d <= cutoffDate) continue;
@@ -590,9 +608,7 @@ function getDmyKey(rc, dateStr) {
         else if (histDetail.type === 'Biopsie') biopsyCount++;
 
         prospectiveVisits.push({
-            record_id: r.record_id || r.id || r.rc,
-            rc: r.rc || '',
-            jmeno: r.jmeno ? `${r.jmeno} ${r.prijmeni || ''}`.trim() : (r.record_id || r.rc),
+            record_id: r.record_id || r.id || '',
             datum: dStr,
             prob: Math.round(xProb * 10000) / 10000,
             covered: coveredVal ? Math.round(parseFloat(coveredVal) * 10000) / 10000 : 0,
@@ -630,11 +646,15 @@ function getDmyKey(rc, dateStr) {
     console.log(`   • ROC AUC prob:            ${rocProb.auc}, 95% CI: ${rocProb.ci.str}`);
     console.log(`   • ROC AUC pfhg:            ${rocPfhg.auc}, 95% CI: ${rocPfhg.ci.str}`);
 
-    const { generateNejmDashboardHtml } = await import('./prospektivni_validace.js');
+    const { generateNejmDashboardHtml, buildMatchedCases } = await import('./prospektivni_validace.js');
+    const matchedCases = buildMatchedCases(allRowsToCheck, freshRedcapRecords);
+    console.log(`   • Případy z histologie spárované s REDCapem: ${matchedCases.length}`);
+
     const htmlContent = generateNejmDashboardHtml({
         totalVisits, hgCount, hgPrevalence, lgCount, lgPrevalence,
         cin3Count, cin2Count, cin1Count, nedCount, biopsyCount, conizationCount,
-        timelineData, rocProb, rocCovered, rocPfhg
+        timelineData, rocProb, rocCovered, rocPfhg,
+        matchedCases
     });
     fs.writeFileSync(htmlFilePath, htmlContent, 'utf-8');
     console.log(`✅ KROK 7 DOKONČEN: Vygenerován nový HTML Dashboard: '${htmlFilePath}'`);
@@ -691,9 +711,21 @@ function getDmyKey(rc, dateStr) {
     console.log(`===================================================================\n`);
 }
 
-// Získání vstupního PDF souboru z argumentů
-const inputPdfArg = process.argv[2] || path.join(__dirname, 'histologie.pdf');
-runFullPipeline(inputPdfArg).catch(err => {
+// Získání vstupních PDF souborů z argumentů
+const inputPdfArgs = process.argv.slice(2);
+const filesToProcess = inputPdfArgs.length > 0 ? inputPdfArgs : [path.join(__dirname, 'histologie.pdf')];
+
+(async () => {
+    for (let i = 0; i < filesToProcess.length; i++) {
+        const file = filesToProcess[i];
+        if (filesToProcess.length > 1) {
+            console.log(`\n===================================================================`);
+            console.log(`▶️ SPUŠTĚNÍ PIPELINE PRO SOUBOR [${i + 1}/${filesToProcess.length}]: ${file}`);
+            console.log(`===================================================================\n`);
+        }
+        await runFullPipeline(file);
+    }
+})().catch(err => {
     console.error(`\n❌ KRITICKÁ CHYBA PIPELINE:`, err);
     process.exit(1);
 });

@@ -16,6 +16,18 @@ const __dirname = path.dirname(__filename);
 const workerPath = path.resolve(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
 pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
+// Automatické načtení .env souboru
+const envPath = path.resolve(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
+    for (const line of lines) {
+        const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+        if (m && !process.env[m[1]]) {
+            process.env[m[1]] = (m[2] || '').trim();
+        }
+    }
+}
+
 // Gemini API Klíč
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 if (!GEMINI_API_KEY) {
@@ -393,61 +405,141 @@ export async function sendRowsToGoogleSheets(rows, webAppUrl = process.env.GOOGL
     console.log(`==================================================`);
     console.log(`🌐 Cílové Web App URL: ${webAppUrl}`);
 
-    try {
-        const response = await fetch(webAppUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ rows: rowsToSend }),
-            redirect: 'follow'
-        });
-
-        const rawText = await response.text();
-        let jsonRes;
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            jsonRes = JSON.parse(rawText);
-        } catch {
-            jsonRes = { raw: rawText };
-        }
+            if (attempt > 1) {
+                console.log(`🔄 [Google Tabulky] Opakovaný pokus ${attempt}/3 odeslání...`);
+            }
+            const response = await fetch(webAppUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ rows: rowsToSend }),
+                redirect: 'follow'
+            });
 
-        console.log(`✅ [Google Tabulky] Odpověď z Google Apps Script:`, jsonRes);
-        console.log(`==================================================\n`);
-        return jsonRes;
-    } catch (err) {
-        console.error(`❌ [Google Tabulky] Chyba při odesílání do Google Tabulek:`, err.message);
-        throw err;
+            const rawText = await response.text();
+            let jsonRes;
+            try {
+                jsonRes = JSON.parse(rawText);
+            } catch {
+                jsonRes = { raw: rawText };
+            }
+
+            console.log(`✅ [Google Tabulky] Odpověď z Google Apps Script:`, jsonRes);
+            console.log(`==================================================\n`);
+            return jsonRes;
+        } catch (err) {
+            lastError = err;
+            console.warn(`⚠️ [Google Tabulky] Pokus ${attempt}/3 selhal (${err.message})...`);
+            if (attempt < 3) {
+                await new Promise(r => setTimeout(r, 2000));
+            }
+        }
     }
+    console.error(`❌ [Google Tabulky] Všechny 3 pokusy odeslání do Google Tabulek selhaly:`, lastError.message);
+    throw lastError;
 }
 
 function fallbackHistologyParse(nalezText) {
-    const text = (nalezText || '').toLowerCase();
+    let rawLower = (nalezText || '').toLowerCase();
     
-    let punch_biopsie = (text.includes('punch') || text.includes('pb') || text.includes('biops')) ? 'ano' : 'ne';
-    let konizace = (text.includes('konizace') || text.includes('konizát') || text.includes('kónus') || text.includes('plastika čípku')) ? 'ano' : 'ne';
-    
+    // Punch biopsie
+    let punch_biopsie = (
+        rawLower.includes('punch') || 
+        rawLower.includes('pb') || 
+        rawLower.includes('biops') || 
+        rawLower.includes('částka z děložního hrdla') ||
+        rawLower.includes('částky z děložního hrdla') ||
+        rawLower.includes('z děložního hrdla') ||
+        rawLower.includes('z hrdla')
+    ) ? 'ano' : 'ne';
+
+    // Konizace
+    let konizace = (
+        rawLower.includes('konizace') || 
+        rawLower.includes('konizát') || 
+        rawLower.includes('kónus') || 
+        rawLower.includes('konus') || 
+        rawLower.includes('plastika čípku')
+    ) ? 'ano' : 'ne';
+
+    if (konizace === 'ano' && !rawLower.includes('punch') && !rawLower.includes('pb')) {
+        punch_biopsie = 'ne';
+    }
+
+    // Extrakce závěru, pokud existuje
+    let targetText = rawLower;
+    const zaverMatch = rawLower.match(/závěr\s*:\s*([\s\S]*?)(?=(t83|t 83|\d{1,2}\.\d{1,2}\.\d{4}|$))/i);
+    if (zaverMatch && zaverMatch[1].trim().length > 5) {
+        targetText = zaverMatch[1].trim();
+    }
+
+    // Normalizace textu pro zachycení tvarů s pomlčkou, římskými číslicemi a přechodnými stupni
+    const norm = (txt) => {
+        return txt
+            .replace(/h[\s\-_/]*sil/gi, ' hsil ')
+            .replace(/l[\s\-_/]*sil/gi, ' lsil ')
+            .replace(/cin\s*2\s*[-–/]\s*3/gi, ' cin3 ')
+            .replace(/cin\s*1\s*[-–/]\s*2/gi, ' cin2 ')
+            .replace(/cin\s*3/gi, ' cin3 ')
+            .replace(/cin\s*2/gi, ' cin2 ')
+            .replace(/cin\s*1/gi, ' cin1 ')
+            .replace(/cin\s*[ií]\b/gi, ' cin1 ')
+            .replace(/cin\s*i{2}\b/gi, ' cin2 ')
+            .replace(/cin\s*i{3}\b/gi, ' cin3 ');
+    };
+
+    // Filtrace negovaných vět
+    const sentences = targetText.split(/[.;\n]+/).map(s => s.trim()).filter(Boolean);
+    const positiveSentences = sentences.filter(s => {
+        const isNegated = s.includes('zastiženy nebyly') || 
+                          s.includes('zastíženy nebyly') || 
+                          s.includes('nebyl zastižen') || 
+                          s.includes('nebyly zastiženy') || 
+                          s.includes('nepozorujeme') || 
+                          s.includes('neprokazujeme') || 
+                          s.includes('nenacházíme') || 
+                          s.includes('bez známek') ||
+                          s.includes('bez struktur') ||
+                          s.includes('bez jednoznačných') ||
+                          s.includes('bez dyspl');
+        return !isNegated;
+    });
+
+    const evalText = norm(positiveSentences.join(' ') || targetText);
+
     let vysledek = 'bez dysplázie';
-    if (text.includes('karcinom') || text.includes('ca čípku') || text.includes('dlaždicobuněčný ca')) vysledek = 'karcinom';
-    else if (text.includes('ais') || text.includes('adenokarcinom in situ')) vysledek = 'AIS';
-    else if (text.includes('cin 3') || text.includes('cin3') || text.includes('těžká dysplázie') || text.includes('hsil')) vysledek = 'CIN3';
-    else if (text.includes('cin 2') || text.includes('cin2') || text.includes('středně těžká dysplázie')) vysledek = 'CIN2';
-    else if (text.includes('cin 1') || text.includes('cin1') || text.includes('mírná dysplázie') || text.includes('lsil')) vysledek = 'CIN1';
-    else if (text.includes('bez dysplázie') || text.includes('bez dyspl') || text.includes('ned')) vysledek = 'bez dysplázie';
-    else vysledek = 'bez dysplázie';
+    // Pravidlo: u přechodných nálezů brát horší (karcinom > AIS > CIN3 > CIN2 > CIN1)
+    if (evalText.includes('karcinom') || evalText.includes('ca čípku') || evalText.includes('dlaždicobuněčný ca')) {
+        vysledek = 'karcinom';
+    } else if (evalText.includes('ais') || evalText.includes('adenokarcinom in situ')) {
+        vysledek = 'AIS';
+    } else if (evalText.includes('cin3') || evalText.includes('těžká dysplázie') || evalText.includes('těžkými dysplastickými') || evalText.includes('hsil') || evalText.includes('high grade') || evalText.includes('high-grade')) {
+        vysledek = 'CIN3';
+    } else if (evalText.includes('cin2') || evalText.includes('středně těžká dysplázie')) {
+        vysledek = 'CIN2';
+    } else if (evalText.includes('cin1') || evalText.includes('mírná dysplázie') || evalText.includes('lsil') || evalText.includes('low grade') || evalText.includes('low-grade')) {
+        vysledek = 'CIN1';
+    } else {
+        vysledek = 'bez dysplázie';
+    }
 
     let okraj_konizace = 'neuplatňuje se';
     if (konizace === 'ano') {
-        if (text.includes('v okraji') || text.includes('zasahuje do okraje') || text.includes('okraj pozitivní')) okraj_konizace = 'přednádorový stav v okraji';
+        if (rawLower.includes('v okraji') || rawLower.includes('zasahuje do okraje') || rawLower.includes('okraj pozitivní')) okraj_konizace = 'přednádorový stav v okraji';
         else okraj_konizace = 'čistý';
     }
 
     let vysledek_kyretaze = 'neprovedeno';
-    if (text.includes('kyretáž') || text.includes('ck') || text.includes('endocervik')) {
+    if (rawLower.includes('kyretáž') || rawLower.includes('ck') || rawLower.includes('endocervik')) {
         vysledek_kyretaze = 'provedena kyretáž';
     }
 
     let zbyly_nalez = 'žádný';
-    if (text.includes('zánět') || text.includes('cervicitis') || text.includes('metaplázie') || text.includes('kondylom')) {
+    if (rawLower.includes('zánět') || rawLower.includes('cervicitis') || rawLower.includes('metaplázie') || rawLower.includes('kondylom')) {
         zbyly_nalez = 'cervicitis / metaplázie';
     }
 
@@ -462,7 +554,7 @@ function fallbackHistologyParse(nalezText) {
 }
 
 /**
- * Přímé volání Gemini AI Modelu (gemini-3.6-flash) se záložním pravidlovým parserem při absenci klíče nebo chybě sítě
+ * Přímé volání Gemini AI Modelu (gemini-3.8-flash) se záložním pravidlovým parserem při absenci klíče nebo chybě sítě
  */
 async function callGeminiAiModel(nalezText) {
     if (!GEMINI_API_KEY) {
@@ -474,12 +566,13 @@ async function callGeminiAiModel(nalezText) {
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.8-flash',
             contents: prompt,
             config: {
                 systemInstruction: SYSTEM_AI_INSTRUCTION,
                 responseMimeType: 'application/json',
-                responseSchema: AI_RESPONSE_SCHEMA
+                responseSchema: AI_RESPONSE_SCHEMA,
+                temperature: 0.1
             }
         });
 
@@ -502,6 +595,17 @@ Tvým úkolem je provést přesnou odbornou extrakci následujících 6 parametr
 1. \`punch_biopsie\`: "ano" pokud se jedná o punch biopsii (PB) / punkční biopsii z hrdla; jinak "ne".
 2. \`konizace\`: "ano" pokud se jedná o konizaci (kónus hrdla); jinak "ne".
 3. \`vysledek\`: přesně jedna z hodnot: "bez dysplázie", "CIN1", "CIN2", "CIN3", "AIS", "karcinom", "jiné".
+   ZÁSADNÍ PRAVIDLA PRO VOLBU VÝSLEDKU:
+   - V případě přechodných, hraničních nebo kombinovaných závěrů (např. CIN1 / CIN2, CIN 1-2, CIN2-3, LSIL/HSIL) VŽDY VOL TEN HORŠÍ (vyšší stupeň / závažnější diagnózu):
+     * "CIN1 / CIN 2" nebo "CIN 1-2" -> zvol "CIN2"
+     * "CIN2 / CIN 3" nebo "CIN 2-3" -> zvol "CIN3"
+     * "LSIL / HSIL" -> zvol "CIN3"
+     * Pokud je přítomno ložisko CIN1 a zároveň ložisko CIN3 -> zvol "CIN3"
+   - Nález "H-SIL", "HSIL", "H SIL", "high grade skvamózní intraepiteliální léze" odpovídá těžké lézi:
+     * Pokud text uvádí "H-SIL" nebo "HSIL" obecně, případně "H-SIL (dříve CIN2-3)" či "až CIN3" -> zvol "CIN3".
+     * Pokud je explicitně specifikováno pouze "HSIL - CIN2" bez těžší složky -> zvol "CIN2".
+   - Nález "L-SIL", "LSIL", "L SIL", "low grade skvamózní intraepiteliální léze" bez těžší složky -> zvol "CIN1".
+   - Pozor na negace v textu: formulace jako "HSIL neprokazujeme", "bez struktur HSIL", "HSIL zastiženy nebyly", "bez známek dysplázie" znamenají, že léze NENÍ přítomna!
 4. \`okraj_konizace\`: v případě konizace posoudit resekční okraj ("čistý", "přednádorový stav v okraji", "karcinom v okraji"); pokud konizace nepatří k výkonu nebo nebyla provedena, uveď "neuplatňuje se".
 5. \`vysledek_kyretaze\`: v případě provedení endocervikální kyretáže nebo kyretáže těla popiš stručně její výsledek; jinak "neprovedeno".
 6. \`zbyly_nalez\`: stručný popis zbylého histologického nálezu (zánět, cervicitis, metaplázie, kondylom apod.), aby nic neuteklo; jinak "žádný".

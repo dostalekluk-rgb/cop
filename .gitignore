@@ -5,12 +5,27 @@ node_modules/
 node.exe
 *.traineddata
 
+# Secrets & Environment variables
+.env
+.env*
+portable/.env
+portable/.env*
+config_php
+api_ftp.php
+htaccess_recer
+
 # Input & Output data files (PDFs, Excel outputs, extracted text logs with PII)
 *.pdf
 *.xlsx
 *.txt
 !README.md
 !**/NAVOD_FLASH_DISK.txt
+vystup_*.json
+reparse_progress.json
+
+# Local Image Caches (contains colposcopy patient images)
+model_images/
+portable/model_images/
 
 # OS & Editor files
 .DS_Store

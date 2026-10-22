@@ -165,6 +165,97 @@ function computeRocAuc(items, scoreKey) {
     };
 }
 
+/**
+ * Sestavení plně anonymizovaných strukturovaných záznamů pro 33 spárovaných případů z histologické databáze s REDCapem
+ * ŽÁDNÁ JMÉNA ANI RODNÁ ČÍSLA PACIENTEK NEJSOU ZDE UKLÁDÁNA ANI PŘENÁŠENA!
+ */
+export function buildMatchedCases(googleRows, redcapRecords) {
+    if (!googleRows || !Array.isArray(googleRows)) return [];
+    const redcapMap = new Map();
+    if (redcapRecords && Array.isArray(redcapRecords)) {
+        redcapRecords.forEach(r => {
+            const id = (r.record_id || r.id || r.rc || '').toString().trim();
+            if (id) redcapMap.set(id, r);
+        });
+    }
+
+    const matchedCases = [];
+    for (let i = 0; i < googleRows.length; i++) {
+        const row = googleRows[i];
+        const redcapId = (row[11] || '').toString().trim();
+        if (!redcapId) continue;
+
+        const rcRec = redcapMap.get(redcapId);
+        const datumPrijmuStr = row[0] || '';
+        // PLNÁ ANONYMIZACE: row[1] (jméno) ani row[2] (rodné číslo) se v žádném případě nepoužijí!
+        const punchBiopsie = (row[5] || '').toString().trim().toLowerCase();
+        const konizace = (row[6] || '').toString().trim().toLowerCase();
+        const textDesc = (row[3] || '').toString().toLowerCase();
+        const vysledekStr = (row[7] || '').toString().trim();
+
+        let procedureType = 'Punch biopsie';
+        if (konizace === 'ano' || textDesc.includes('konus') || textDesc.includes('koniz')) {
+            procedureType = 'Konizace';
+        } else if (punchBiopsie === 'ano') {
+            procedureType = 'Punch biopsie';
+        }
+
+        const recDateStr = rcRec ? (rcRec.datum || rcRec.v1_date || rcRec.vfu_date || '') : '';
+        const dateGoogle = parseDate(datumPrijmuStr);
+        const dateRedcap = parseDate(recDateStr);
+        let diffDays = null;
+        if (dateGoogle && dateRedcap) {
+            diffDays = Math.round((dateGoogle.getTime() - dateRedcap.getTime()) / (1000 * 60 * 60 * 24));
+        }
+
+        const probVal = rcRec ? (rcRec.prob !== undefined && rcRec.prob !== '' ? rcRec.prob : rcRec.hg_probability) : null;
+        const coveredVal = rcRec ? (rcRec.covered !== undefined && rcRec.covered !== '' ? rcRec.covered : rcRec.tz_covered_by_hg_frac) : null;
+        const pfhgVal = rcRec ? (rcRec.pfhg !== undefined && rcRec.pfhg !== '' ? rcRec.pfhg : rcRec.pixel_fraction_hg) : null;
+
+        const xProb = probVal !== null && probVal !== undefined ? parseFloat(probVal) : null;
+        const xCovered = coveredVal !== null && coveredVal !== undefined ? parseFloat(coveredVal) : null;
+        const xPfhg = pfhgVal !== null && pfhgVal !== undefined ? parseFloat(pfhgVal) : null;
+
+        let catKey = 'ned';
+        const vLower = vysledekStr.toLowerCase();
+        if (vLower.includes('cin3') || vLower.includes('cin 3') || vLower.includes('karcinom') || vLower.includes('ais')) {
+            catKey = 'cin3';
+        } else if (vLower.includes('cin2') || vLower.includes('cin 2')) {
+            catKey = 'cin2';
+        } else if (vLower.includes('cin1') || vLower.includes('cin 1')) {
+            catKey = 'cin1';
+        } else {
+            catKey = 'ned';
+        }
+
+        const formatCz = (d) => {
+            if (!d) return '';
+            return `${d.getUTCDate()}. ${d.getUTCMonth() + 1}. ${d.getUTCFullYear()}`;
+        };
+
+        const caseIdx = matchedCases.length + 1;
+        matchedCases.push({
+            id: caseIdx,
+            case_label: `Případ #${caseIdx}`,
+            redcap_id: redcapId,
+            histo_date: datumPrijmuStr,
+            histo_date_formatted: dateGoogle ? formatCz(dateGoogle) : datumPrijmuStr,
+            redcap_date: recDateStr,
+            redcap_date_formatted: dateRedcap ? formatCz(dateRedcap) : recDateStr,
+            diff_days: diffDays,
+            procedure_type: procedureType,
+            histo_result: vysledekStr || 'neuvedeno',
+            category_key: catKey,
+            prob: xProb !== null && !isNaN(xProb) ? Math.round(xProb * 10000) / 10000 : null,
+            covered: xCovered !== null && !isNaN(xCovered) ? Math.round(xCovered * 10000) / 10000 : null,
+            pfhg: xPfhg !== null && !isNaN(xPfhg) ? Math.round(xPfhg * 10000) / 10000 : null,
+            image_url: `model_images/${redcapId}_model.png`
+        });
+    }
+
+    return matchedCases;
+}
+
 async function runProspectiveRocValidation() {
     console.log(`==================================================`);
     console.log(`🚀 PROSPEKTIVNÍ VALIDACE MODELU PROTI HISTOLOGII & ROC AUC`);
@@ -219,9 +310,7 @@ async function runProspectiveRocValidation() {
         else if (histDetail.type === 'Biopsie') biopsyCount++;
 
         prospectiveVisits.push({
-            record_id: r.record_id || r.id || r.rc,
-            rc: r.rc || '',
-            jmeno: r.jmeno ? `${r.jmeno} ${r.prijmeni || ''}`.trim() : (r.record_id || r.rc),
+            record_id: r.record_id || r.id || '',
             datum: dStr,
             model_img: r.model || r.v1_colpo || '',
             prob: Math.round(xProb * 10000) / 10000,
@@ -277,7 +366,21 @@ async function runProspectiveRocValidation() {
     console.log(`3. pfhg (plošný podíl HGL):     AUC = ${rocPfhg.auc}, 95% CI: ${rocPfhg.ci.str} | Sens = ${Math.round(rocPfhg.optimalCutoff?.sensitivity * 100)}% | Spec = ${Math.round(rocPfhg.optimalCutoff?.specificity * 100)}%`);
     console.log(`==================================================\n`);
 
-    // 4. Vygenerování HTML Dashboardu s jemnými tenkými grafy
+    // 4. Načtení řádků z Google Tabulky pro detailní tabulku případů
+    console.log(`📥 Načítám řádky z Google Tabulky pro detailní tabulku případů...`);
+    let googleSheetRows = [];
+    try {
+        const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzNzshLzdHwfbAjrMF_8vMImHq7sw-H6TH-Ns1ELs4v2nJ4OtLrWS6tQBXIJpnD2MCD/exec';
+        const gRes = await fetch(GOOGLE_WEB_APP_URL);
+        const gJson = await gRes.json();
+        googleSheetRows = Array.isArray(gJson) ? gJson : (gJson.data || gJson.rows || []);
+    } catch (gErr) {
+        console.warn(`⚠️ Nepodařilo se stáhnout data z Google Tabulky:`, gErr.message);
+    }
+    const matchedCases = buildMatchedCases(googleSheetRows, allRecords);
+    console.log(`Celkem spárováno pro detailní tabulku případů: ${matchedCases.length} případů.`);
+
+    // 5. Vygenerování HTML Dashboardu s jemnými tenkými grafy a tabulkou případů
     const htmlContent = generateNejmDashboardHtml({
         totalVisits,
         hgCount,
@@ -293,7 +396,8 @@ async function runProspectiveRocValidation() {
         timelineData,
         rocProb,
         rocCovered,
-        rocPfhg
+        rocPfhg,
+        matchedCases
     });
 
     const outputHtmlPath = path.join(process.cwd(), 'prospektivni_validace.html');
@@ -312,6 +416,87 @@ export function generateNejmDashboardHtml(stats) {
     const jsonRocCovered = JSON.stringify(stats.rocCovered.rocPoints);
     const jsonRocPfhg = JSON.stringify(stats.rocPfhg.rocPoints);
     const jsonTimeline = JSON.stringify(stats.timelineData);
+
+    const matchedCases = stats.matchedCases || [];
+    const statsKon = matchedCases.filter(c => c.procedure_type === 'Konizace').length;
+    const statsPb = matchedCases.filter(c => c.procedure_type === 'Punch biopsie').length;
+    const statsCin3 = matchedCases.filter(c => c.category_key === 'cin3').length;
+    const statsCin2 = matchedCases.filter(c => c.category_key === 'cin2').length;
+    const statsCin1 = matchedCases.filter(c => c.category_key === 'cin1').length;
+    const statsNed = matchedCases.filter(c => c.category_key === 'ned').length;
+
+    let casesTableRowsHtml = '';
+    matchedCases.forEach((c, idx) => {
+        const probText = c.prob !== null ? (c.prob * 100).toFixed(1) + ' %' : '–';
+        const coveredText = c.covered !== null ? (c.covered * 100).toFixed(1) + ' %' : '–';
+        const pfhgText = c.pfhg !== null ? (c.pfhg * 100).toFixed(1) + ' %' : '–';
+        const isHgAlert = c.prob !== null && c.prob >= 0.5;
+
+        casesTableRowsHtml += `
+            <tr class="case-row" data-index="${idx}" data-category="${c.category_key}" data-type="${c.procedure_type === 'Konizace' ? 'konizace' : 'punch'}">
+                <td style="text-align: center; font-weight: 700; color: var(--text-muted); font-size: 1.05rem;">${idx + 1}</td>
+                <td style="text-align: center; padding: 12px 10px;">
+                    <div class="thumb-container" onclick="openLightbox(${idx})" title="Kliknutím otevřete detail snímku v plné velikosti">
+                        <img src="${c.image_url}" alt="Model ${c.redcap_id}" class="model-thumb" loading="lazy" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'240\\' height=\\'240\\' viewBox=\\'0 0 240 240\\'><rect width=\\'240\\' height=\\'240\\' fill=\\'%231e293b\\'/><text x=\\'120\\' y=\\'125\\' font-size=\\'14\\' fill=\\'%2394a3b8\\' text-anchor=\\'middle\\'>Bez náhledu</text></svg>';" />
+                        <div class="thumb-hover-overlay">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16" y2="16"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                            <span>Zvětšit snímek</span>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="case-identity-cell">
+                        <span class="case-badge-title">${c.case_label}</span>
+                        <div><span class="rc-badge" title="REDCap ID">ID: ${c.redcap_id}</span></div>
+                    </div>
+                </td>
+                <td>
+                    <span class="badge-procedure ${c.procedure_type === 'Konizace' ? 'badge-kon' : 'badge-pb'}">
+                        ${c.procedure_type}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge-diag badge-${c.category_key}">
+                        ${c.histo_result}
+                    </span>
+                </td>
+                <td>
+                    <div class="date-cell">
+                        <div class="date-row">
+                            <span class="date-lbl">Kolposkopie:</span>
+                            <span class="date-val">${c.redcap_date_formatted || '–'}</span>
+                        </div>
+                        <div class="date-row">
+                            <span class="date-lbl">Histologie:</span>
+                            <span class="date-val">${c.histo_date_formatted || '–'}</span>
+                        </div>
+                        ${c.diff_days !== null ? `<div class="date-diff ${c.diff_days > 45 ? 'diff-warn' : ''}">Odstup: ${c.diff_days} ${c.diff_days === 1 ? 'den' : (c.diff_days >= 2 && c.diff_days <= 4 ? 'dny' : 'dní')}</div>` : ''}
+                    </div>
+                </td>
+                <td>
+                    <div class="metrics-cell">
+                        <div class="metric-item">
+                            <span class="metric-lbl">prob:</span>
+                            <span class="metric-val ${isHgAlert ? 'hg-alert' : ''}">${probText} <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: normal;">(${c.prob !== null ? c.prob.toFixed(4) : '–'})</span></span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-lbl">covered:</span>
+                            <span class="metric-val">${coveredText}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-lbl">pfhg:</span>
+                            <span class="metric-val">${pfhgText}</span>
+                        </div>
+                    </div>
+                </td>
+                <td style="text-align: center;">
+                    <button class="btn-view-image" onclick="openLightbox(${idx})" title="Zobrazit velký detail snímku">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
 
     return `<!DOCTYPE html>
 <html lang="cs">
@@ -355,7 +540,7 @@ export function generateNejmDashboardHtml(stats) {
         }
 
         .paper-container {
-            max-width: 1100px;
+            max-width: 1360px;
             margin: 0 auto;
             background: var(--surface-paper);
             border: 1px solid var(--border-subtle);
@@ -554,14 +739,545 @@ export function generateNejmDashboardHtml(stats) {
             overflow: visible;
         }
 
-        .nejm-footer {
-            margin-top: 48px;
-            padding-top: 16px;
-            border-top: 1px solid var(--border-subtle);
-            font-size: 0.78rem;
-            color: var(--text-muted);
+
+        /* Section 3: Matched Cases Table & Controls */
+        .cases-toolbar {
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin: 20px 0 16px 0;
+            padding: 12px 16px;
+            background: #f8fafc;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+        }
+
+        .search-box {
+            position: relative;
+            flex: 1;
+            min-width: 260px;
+        }
+
+        .search-box svg {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 8px 12px 8px 36px;
+            font-size: 0.88rem;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            background: #ffffff;
+            color: var(--text-heading);
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .search-box input:focus {
+            border-color: var(--nejm-crimson);
+            box-shadow: 0 0 0 2px rgba(153, 0, 0, 0.1);
+        }
+
+        .filter-pills {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .filter-pill {
+            padding: 6px 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            border-radius: 14px;
+            border: 1px solid var(--border-subtle);
+            background: #ffffff;
+            color: var(--text-body);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+
+        .filter-pill:hover {
+            border-color: var(--border-dark);
+            background: #f1f5f9;
+        }
+
+        .filter-pill.active {
+            background: var(--nejm-navy);
+            color: #ffffff;
+            border-color: var(--nejm-navy);
+        }
+
+        .filter-pill.pill-cin3.active { background: var(--nejm-crimson); border-color: var(--nejm-crimson); }
+        .filter-pill.pill-cin2.active { background: #ea580c; border-color: #ea580c; }
+        .filter-pill.pill-cin1.active { background: #d97706; border-color: #d97706; }
+        .filter-pill.pill-ned.active { background: #16a34a; border-color: #16a34a; }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            background: #ffffff;
+            margin-bottom: 24px;
+        }
+
+        .cases-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+            margin-bottom: 0;
+        }
+
+        .cases-table th {
+            position: sticky;
+            top: 0;
+            background: #f8fafc;
+            border-top: none;
+            border-bottom: 2px solid var(--text-heading);
+            padding: 10px 12px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-heading);
+            white-space: nowrap;
+        }
+
+        .cases-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: middle;
+        }
+
+        .cases-table tr:hover td {
+            background: #f8fafc;
+        }
+
+        /* Thumbnails - Výrazně větší zobrazení (240x240px) pro zřetelnost anotací */
+        .thumb-container {
+            width: 240px;
+            height: 240px;
+            position: relative;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 2px solid #cbd5e1;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            cursor: pointer;
+            background: #090d16;
+            margin: 4px auto;
+            display: block;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+
+        .thumb-container:hover {
+            transform: scale(1.03);
+            border-color: var(--nejm-crimson);
+            box-shadow: 0 8px 24px rgba(153,0,0,0.22);
+        }
+
+        .model-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            transition: transform 0.25s ease;
+        }
+
+        .thumb-container:hover .model-thumb {
+            transform: scale(1.05);
+        }
+
+        .thumb-hover-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            color: #ffffff;
+            font-size: 0.82rem;
+            font-weight: 600;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .thumb-container:hover .thumb-hover-overlay {
+            opacity: 1;
+        }
+
+        /* Badges & Identity */
+        .case-identity-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .case-badge-title {
+            font-weight: 700;
+            color: var(--text-heading);
+            font-size: 0.95rem;
+        }
+
+        .rc-badge {
+            display: inline-block;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.74rem;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            font-weight: 500;
+        }
+
+        .badge-procedure {
+            display: inline-block;
+            font-size: 0.76rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+        }
+
+        .badge-kon {
+            background: #e0e7ff;
+            color: #3730a3;
+            border: 1px solid #c7d2fe;
+        }
+
+        .badge-pb {
+            background: #ccfbf1;
+            color: #0f766e;
+            border: 1px solid #99f6e4;
+        }
+
+        .badge-diag {
+            display: inline-block;
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .badge-cin3 {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .badge-cin2 {
+            background: #ffedd5;
+            color: #c2410c;
+            border: 1px solid #fdba74;
+        }
+
+        .badge-cin1 {
+            background: #fef3c7;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+
+        .badge-ned {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .date-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-size: 0.8rem;
+        }
+
+        .date-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .date-lbl {
+            color: var(--text-muted);
+        }
+
+        .date-val {
+            font-weight: 600;
+            color: var(--text-heading);
+        }
+
+        .date-diff {
+            font-size: 0.74rem;
+            color: #059669;
+            font-weight: 600;
+            margin-top: 1px;
+        }
+
+        .date-diff.diff-warn {
+            color: #d97706;
+        }
+
+        .metrics-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 6px;
+        }
+
+        .metric-lbl {
+            color: var(--text-muted);
+        }
+
+        .metric-val {
+            font-weight: 600;
+            color: var(--text-heading);
+        }
+
+        .metric-val.hg-alert {
+            color: var(--nejm-crimson);
+            font-weight: 700;
+        }
+
+        .btn-view-image {
+            background: #f1f5f9;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 6px 10px;
+            cursor: pointer;
+            color: var(--text-body);
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-view-image:hover {
+            background: var(--nejm-crimson);
+            color: #ffffff;
+            border-color: var(--nejm-crimson);
+        }
+
+        /* Lightbox Modal - Velké zobrazení snímku */
+        .lightbox-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.90);
+            backdrop-filter: blur(8px);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .lightbox-modal.open {
+            display: flex;
+        }
+
+        .lightbox-content {
+            background: #ffffff;
+            border-radius: 8px;
+            max-width: 1340px;
+            width: 96%;
+            max-height: 94vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.45);
+            overflow: hidden;
+            animation: modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: scale(0.97); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .lightbox-header {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+        }
+
+        .lightbox-title-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .lightbox-title-area h3 {
+            font-size: 1.15rem;
+            color: var(--text-heading);
+            font-family: 'Merriweather', serif;
+        }
+
+        .lightbox-close-btn {
+            background: none;
+            border: none;
+            font-size: 1.8rem;
+            line-height: 1;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0 4px;
+            border-radius: 4px;
+        }
+
+        .lightbox-close-btn:hover {
+            color: var(--nejm-crimson);
+        }
+
+        .lightbox-body {
+            display: flex;
+            flex: 1;
+            overflow-y: auto;
+            gap: 24px;
+            padding: 24px;
+        }
+
+        @media (max-width: 900px) {
+            .lightbox-body {
+                flex-direction: column;
+            }
+        }
+
+        .lightbox-image-area {
+            flex: 2;
+            background: #060911;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            min-height: 520px;
+            max-height: 75vh;
+        }
+
+        .lightbox-image-area img {
+            max-width: 100%;
+            max-height: 72vh;
+            object-fit: contain;
+            border-radius: 4px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        .lightbox-info-area {
+            flex: 1;
+            min-width: 320px;
+            display: flex;
+            flex-direction: column;
+            font-size: 0.88rem;
+        }
+
+        .info-card {
+            background: #f8fafc;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 14px;
+            margin-bottom: 14px;
+        }
+
+        .info-card-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 4px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-lbl {
+            color: var(--text-muted);
+            font-size: 0.84rem;
+        }
+
+        .info-val {
+            font-weight: 600;
+            color: var(--text-heading);
+            font-size: 0.88rem;
+        }
+
+        .lightbox-footer {
+            padding: 10px 20px;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+        }
+
+        .lightbox-nav-btn {
+            padding: 6px 14px;
+            background: #ffffff;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-body);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+
+        .lightbox-nav-btn:hover {
+            background: #f1f5f9;
+            border-color: var(--border-dark);
+        }
+
+        .btn-full-res {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--nejm-navy);
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            transition: background 0.15s ease;
+            margin-top: 8px;
+        }
+
+        .btn-full-res:hover {
+            background: #0f172a;
         }
     </style>
 </head>
@@ -877,6 +1593,54 @@ export function generateNejmDashboardHtml(stats) {
             </div>
         </section>
 
+        <!-- Section 3: Detailní Přehled Spárovaných Případů a Anotací Modelu -->
+        <section class="nejm-section" id="section-matched-cases">
+            <div class="section-header">
+                <h2>3. Přehled Případů z Histologické Databáze Spárovaných s REDCapem</h2>
+                <span class="table-num">TABLE 3 & MODEL ANNOTATIONS (N = ${matchedCases.length})</span>
+            </div>
+
+            <p style="font-size: 0.92rem; color: var(--text-body); margin-bottom: 16px;">
+                Následující tabulka uvádí všech <strong>${matchedCases.length} plně anonymizovaných případů</strong> z centrální tabulky <code>histologie_cop</code>, které mají identifikovaný a spárovaný záznam v registru REDCap. U každého případu je k dispozici velký anotovaný kolposkopický snímek vrácený AI segmentačním modelem s vyznačenou transformační zónou a lézí, vypočtené predikční parametry ($prob$, $covered$, $pfhg$), typ provedeného zákroku (konizace vs. punch biopsie), datumy provedení a finální histologický nález.
+            </p>
+
+            <div class="cases-toolbar">
+                <div class="search-box">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <input type="text" id="caseSearchInput" placeholder="Hledat podle REDCap ID, diagnózy, výkonu, data..." onkeyup="handleSearchFilter()" />
+                </div>
+                <div class="filter-pills">
+                    <button class="filter-pill active" data-filter="all" onclick="setCategoryFilter('all', this)">Vše (${matchedCases.length})</button>
+                    <button class="filter-pill" data-filter="konizace" onclick="setCategoryFilter('konizace', this)">Konizace (${statsKon})</button>
+                    <button class="filter-pill" data-filter="punch" onclick="setCategoryFilter('punch', this)">Punch biopsie (${statsPb})</button>
+                    <button class="filter-pill pill-cin3" data-filter="cin3" onclick="setCategoryFilter('cin3', this)">CIN 3 (${statsCin3})</button>
+                    <button class="filter-pill pill-cin2" data-filter="cin2" onclick="setCategoryFilter('cin2', this)">CIN 2 (${statsCin2})</button>
+                    <button class="filter-pill pill-cin1" data-filter="cin1" onclick="setCategoryFilter('cin1', this)">CIN 1 (${statsCin1})</button>
+                    <button class="filter-pill pill-ned" data-filter="ned" onclick="setCategoryFilter('ned', this)">Bez dysplázie (${statsNed})</button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="nejm-table cases-table" id="casesTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px; text-align: center;">#</th>
+                            <th style="width: 260px; text-align: center;">Anotovaný Snímek z Modelu</th>
+                            <th style="min-width: 130px;">Identifikátor</th>
+                            <th style="min-width: 120px;">Typ Výkonu</th>
+                            <th style="min-width: 110px;">Výsledek Histologie</th>
+                            <th style="min-width: 160px;">Datum Provedení & Odstup</th>
+                            <th style="min-width: 170px;">Parametry AI Modelu</th>
+                            <th style="width: 60px; text-align: center;">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody id="casesTableBody">
+                        ${casesTableRowsHtml}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <footer class="nejm-footer">
             <div>RECER AI Colposcopy Validation Study Group &copy; 2026</div>
             <div>Generated automatically from VFN REDCap Registry</div>
@@ -884,7 +1648,194 @@ export function generateNejmDashboardHtml(stats) {
 
     </div>
 
+    <!-- Lightbox Modal pro Detailní Zobrazení Anotovaného Snímku a Parametrů -->
+    <div id="imageLightboxModal" class="lightbox-modal" onclick="handleLightboxBackdropClick(event)">
+        <div class="lightbox-content">
+            <div class="lightbox-header">
+                <div class="lightbox-title-area">
+                    <h3 id="modalCaseTitle">Případ #1</h3>
+                    <span id="modalRedcapId" class="rc-badge"></span>
+                    <span id="modalProcBadge" class="badge-procedure"></span>
+                    <span id="modalDiagBadge" class="badge-diag"></span>
+                </div>
+                <button class="lightbox-close-btn" onclick="closeLightbox()" title="Zavřít (Esc)">&times;</button>
+            </div>
+            <div class="lightbox-body">
+                <div class="lightbox-image-area">
+                    <img id="modalImg" src="" alt="Anotovaný snímek vrácený modelem" />
+                </div>
+                <div class="lightbox-info-area">
+                    <div class="info-card">
+                        <div class="info-card-title">Klinické & Histopatologické Údaje</div>
+                        <div class="info-item">
+                            <span class="info-lbl">Typ výkonu:</span>
+                            <span class="info-val" id="modalInfoType"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-lbl">Histologický výsledek:</span>
+                            <span class="info-val" id="modalInfoResult"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-lbl">Datum kolposkopie (REDCap):</span>
+                            <span class="info-val" id="modalInfoRcDate"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-lbl">Datum histologie:</span>
+                            <span class="info-val" id="modalInfoHistoDate"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-lbl">Časový interval:</span>
+                            <span class="info-val" id="modalInfoDiff"></span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-card-title">Predikční Parametry AI Modelu</div>
+                        <div class="info-item">
+                            <span class="info-lbl">HG Pravděpodobnost (prob):</span>
+                            <span class="info-val" id="modalInfoProb"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-lbl">Pokrytí léze v TZ (covered):</span>
+                            <span class="info-val" id="modalInfoCovered"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-lbl">Plošný podíl léze (pfhg):</span>
+                            <span class="info-val" id="modalInfoPfhg"></span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <a id="modalFullLink" href="" target="_blank" class="btn-full-res">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                            Otevřít snímek v plném rozlišení
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="lightbox-footer">
+                <button class="lightbox-nav-btn" onclick="prevLightbox()">&larr; Předchozí</button>
+                <span id="modalCounter" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Případ 1 z ${matchedCases.length}</span>
+                <button class="lightbox-nav-btn" onclick="nextLightbox()">Následující &rarr;</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        const casesData = ${JSON.stringify(matchedCases)};
+        let currentFilterCategory = 'all';
+        let currentLightboxIndex = 0;
+
+        function handleSearchFilter() {
+            const query = (document.getElementById('caseSearchInput').value || '').toLowerCase().trim();
+            const rows = document.querySelectorAll('#casesTableBody tr.case-row');
+
+            rows.forEach(r => {
+                const idx = parseInt(r.getAttribute('data-index'), 10);
+                const item = casesData[idx];
+                if (!item) return;
+
+                const cat = r.getAttribute('data-category');
+                const ptype = r.getAttribute('data-type');
+
+                let matchCat = (currentFilterCategory === 'all') ||
+                               (currentFilterCategory === 'konizace' && ptype === 'konizace') ||
+                               (currentFilterCategory === 'punch' && ptype === 'punch') ||
+                               (currentFilterCategory === cat);
+
+                const matchQuery = !query ||
+                                   item.case_label.toLowerCase().includes(query) ||
+                                   item.redcap_id.toLowerCase().includes(query) ||
+                                   item.histo_result.toLowerCase().includes(query) ||
+                                   item.procedure_type.toLowerCase().includes(query) ||
+                                   (item.histo_date_formatted && item.histo_date_formatted.includes(query)) ||
+                                   (item.redcap_date_formatted && item.redcap_date_formatted.includes(query));
+
+                if (matchCat && matchQuery) {
+                    r.style.display = '';
+                } else {
+                    r.style.display = 'none';
+                }
+            });
+        }
+
+        function setCategoryFilter(cat, btn) {
+            currentFilterCategory = cat;
+            document.querySelectorAll('.filter-pills .filter-pill').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            handleSearchFilter();
+        }
+
+        function openLightbox(index) {
+            if (index < 0 || index >= casesData.length) return;
+            currentLightboxIndex = index;
+            const item = casesData[index];
+
+            document.getElementById('modalCaseTitle').textContent = item.case_label;
+            document.getElementById('modalRedcapId').textContent = 'REDCap ID: ' + item.redcap_id;
+
+            const procBadge = document.getElementById('modalProcBadge');
+            procBadge.textContent = item.procedure_type;
+            procBadge.className = 'badge-procedure ' + (item.procedure_type === 'Konizace' ? 'badge-kon' : 'badge-pb');
+
+            const diagBadge = document.getElementById('modalDiagBadge');
+            diagBadge.textContent = item.histo_result;
+            diagBadge.className = 'badge-diag badge-' + item.category_key;
+
+            document.getElementById('modalImg').src = item.image_url;
+            document.getElementById('modalInfoType').textContent = item.procedure_type;
+            document.getElementById('modalInfoResult').textContent = item.histo_result;
+            document.getElementById('modalInfoRcDate').textContent = item.redcap_date_formatted || '–';
+            document.getElementById('modalInfoHistoDate').textContent = item.histo_date_formatted || '–';
+            document.getElementById('modalInfoDiff').textContent = item.diff_days !== null ? (item.diff_days + ' dní po vizitě') : '–';
+
+            const probStr = item.prob !== null ? ((item.prob * 100).toFixed(1) + ' % (' + item.prob.toFixed(4) + ')') : '–';
+            const coveredStr = item.covered !== null ? ((item.covered * 100).toFixed(1) + ' % (' + item.covered.toFixed(4) + ')') : '–';
+            const pfhgStr = item.pfhg !== null ? ((item.pfhg * 100).toFixed(1) + ' % (' + item.pfhg.toFixed(4) + ')') : '–';
+
+            document.getElementById('modalInfoProb').textContent = probStr;
+            document.getElementById('modalInfoCovered').textContent = coveredStr;
+            document.getElementById('modalInfoPfhg').textContent = pfhgStr;
+
+            document.getElementById('modalFullLink').href = item.image_url;
+            document.getElementById('modalCounter').textContent = 'Případ ' + (index + 1) + ' z ' + casesData.length;
+
+            document.getElementById('imageLightboxModal').classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeLightbox() {
+            document.getElementById('imageLightboxModal').classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        function handleLightboxBackdropClick(e) {
+            if (e.target.id === 'imageLightboxModal') {
+                closeLightbox();
+            }
+        }
+
+        function prevLightbox() {
+            let newIdx = currentLightboxIndex - 1;
+            if (newIdx < 0) newIdx = casesData.length - 1;
+            openLightbox(newIdx);
+        }
+
+        function nextLightbox() {
+            let newIdx = currentLightboxIndex + 1;
+            if (newIdx >= casesData.length) newIdx = 0;
+            openLightbox(newIdx);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            const modal = document.getElementById('imageLightboxModal');
+            if (modal && modal.classList.contains('open')) {
+                if (e.key === 'Escape') closeLightbox();
+                else if (e.key === 'ArrowLeft') prevLightbox();
+                else if (e.key === 'ArrowRight') nextLightbox();
+            }
+        });
+
         const rocPointsProb = ${jsonRocProb};
         const rocPointsCovered = ${jsonRocCovered};
         const rocPointsPfhg = ${jsonRocPfhg};

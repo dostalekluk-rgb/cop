@@ -85,18 +85,38 @@ export async function fetchRedcapRecords(apiToken = process.env.REDCAP_API_TOKEN
     params.append('type', 'flat');
     params.append('returnFormat', 'json');
 
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString()
-    });
+    let lastError = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+            if (attempt > 1) {
+                console.log(`🔄 [RedCap API] Opakovaný pokus ${attempt}/4 načtení dat z REDCap...`);
+            }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`RedCap API chyba HTTP ${response.status}: ${errText}`);
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString(),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`RedCap API chyba HTTP ${response.status}: ${errText}`);
+            }
+
+            return await response.json();
+        } catch (err) {
+            lastError = err;
+            console.warn(`⚠️ [RedCap API] Pokus ${attempt}/4 načtení selhal (${err.message})...`);
+            if (attempt < 4) {
+                await new Promise(r => setTimeout(r, 2000 * attempt));
+            }
+        }
     }
-
-    return await response.json();
+    throw lastError;
 }
 
 /**
@@ -119,25 +139,45 @@ export async function importRedcapRecords(recordsToUpdate, apiToken = process.en
     params.append('data', JSON.stringify(recordsToUpdate));
     params.append('returnContent', 'count');
 
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString()
-    });
+    let lastError = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+            if (attempt > 1) {
+                console.log(`🔄 [RedCap API] Opakovaný pokus ${attempt}/4 odeslání do REDCap...`);
+            }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`RedCap API Import chyba HTTP ${response.status}: ${errText}`);
-    }
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString(),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
 
-    const textRes = await response.text();
-    let jsonRes;
-    try {
-        jsonRes = JSON.parse(textRes);
-    } catch {
-        jsonRes = { count: textRes };
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`RedCap API Import chyba HTTP ${response.status}: ${errText}`);
+            }
+
+            const textRes = await response.text();
+            let jsonRes;
+            try {
+                jsonRes = JSON.parse(textRes);
+            } catch {
+                jsonRes = { count: textRes };
+            }
+            return jsonRes;
+        } catch (err) {
+            lastError = err;
+            console.warn(`⚠️ [RedCap API] Pokus ${attempt}/4 zápisu selhal (${err.message})...`);
+            if (attempt < 4) {
+                await new Promise(r => setTimeout(r, 2000 * attempt));
+            }
+        }
     }
-    return jsonRes;
+    throw lastError;
 }
 
 /**
